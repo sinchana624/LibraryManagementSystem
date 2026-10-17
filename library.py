@@ -1,80 +1,44 @@
 
 # ==============================================================
-# LIBRASMART | SMART LIBRARY MANAGEMENT SYSTEM
-# Python Mini Project | Python 3.8+
-# Storage: JSON | Interface: Colorful Command-Line Dashboard
+# LIBRASMART - SMART LIBRARY MANAGEMENT SYSTEM
+# Python 3.8+ | Tkinter GUI | Matplotlib Analytics | JSON Storage
 # ==============================================================
 
 import json
 import os
-from datetime import date, datetime, timedelta
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import date, timedelta, datetime
+from collections import Counter
 
-# ------------------------- SETTINGS ----------------------------
+import matplotlib
+matplotlib.use("TkAgg")
 
-FILE = "library_data.json"
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import (
+    FigureCanvasTkAgg,
+    NavigationToolbar2Tk
+)
+
+# ------------------------- CONFIG -------------------------------
+
+DATA_FILE = "library_data.json"
 LOAN_DAYS = 14
 FINE_PER_DAY = 2
 
-# ANSI terminal colors
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-PURPLE = "\033[95m"
-CYAN = "\033[96m"
-BLUE = "\033[94m"
-GREEN = "\033[92m"
-YELLOW = "\033[93m"
-RED = "\033[91m"
-WHITE = "\033[97m"
+BG = "#F4F3FA"
+SIDEBAR = "#211B3B"
+PURPLE = "#6C4AB6"
+LIGHT_PURPLE = "#EEE8FC"
+WHITE = "#FFFFFF"
+DARK = "#28243A"
+GREEN = "#21966B"
+RED = "#D94F5C"
+ORANGE = "#E99A35"
+MUTED = "#77738A"
 
-
-# ---------------------- DESIGN FUNCTIONS -----------------------
-
-def line(char="─", width=68, color=CYAN):
-    print(f"{color}{char * width}{RESET}")
-
-
-def heading(title):
-    print()
-    line("═", color=PURPLE)
-    print(f"{BOLD}{PURPLE}  {title.upper()}{RESET}")
-    line("═", color=PURPLE)
-
-
-def success(message):
-    print(f"\n{GREEN}{BOLD}  ✔ {message}{RESET}")
-
-
-def warning(message):
-    print(f"\n{YELLOW}  ⚠ {message}{RESET}")
-
-
-def error(message):
-    print(f"\n{RED}  ✘ {message}{RESET}")
-
-
-def pause():
-    input(f"\n{DIM}Press Enter to return to the main menu...{RESET}")
-
-
-def welcome_screen():
-    print(f"\n{PURPLE}{BOLD}")
-    print(r"  ██╗     ██╗██████╗ ██████╗  █████╗ ███████╗███╗   ███╗")
-    print(r"  ██║     ██║██╔══██╗██╔══██╗██╔══██╗██╔════╝████╗ ████║")
-    print(r"  ██║     ██║██████╔╝██████╔╝███████║███████╗██╔████╔██║")
-    print(r"  ██║     ██║██╔══██╗██╔══██╗██╔══██║╚════██║██║╚██╔╝██║")
-    print(r"  ███████╗██║██████╔╝██║  ██║██║  ██║███████║██║ ╚═╝ ██║")
-    print(r"  ╚══════╝╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝")
-    print(f"{RESET}{CYAN}{BOLD}             SMART LIBRARY MANAGEMENT SYSTEM{RESET}")
-    line("═", color=PURPLE)
-    print(f"{WHITE}  Manage books. Empower readers. Simplify library life.{RESET}")
-    line("═", color=PURPLE)
-
-
-# ---------------------- DATA MANAGEMENT -----------------------
 
 def empty_data():
-    """Create the initial library database structure."""
     return {
         "books": {},
         "members": {},
@@ -84,679 +48,1224 @@ def empty_data():
 
 
 def load_data():
-    """Load the JSON database or initialize an empty library."""
-    if not os.path.exists(FILE):
+    if not os.path.exists(DATA_FILE):
         return empty_data()
 
     try:
-        with open(FILE, "r", encoding="utf-8") as file:
+        with open(DATA_FILE, "r", encoding="utf-8") as file:
             data = json.load(file)
 
         if not isinstance(data, dict):
-            raise ValueError("The database must contain a JSON object.")
+            raise ValueError("Invalid database format.")
 
-        # Support older versions of this project.
-        data.setdefault("books", {})
-        data.setdefault("members", {})
-        data.setdefault("issued", [])
-        data.setdefault("reservations", [])
+        for key in ("books", "members", "issued", "reservations"):
+            data.setdefault(key, {} if key in ("books", "members") else [])
 
         return data
 
     except (OSError, json.JSONDecodeError, ValueError) as exc:
-        error(f"Unable to load the database: {exc}")
-        print("Check library_data.json before continuing.")
+        messagebox.showerror(
+            "Database Error",
+            f"Could not load {DATA_FILE}:\n{exc}\n\n"
+            "Check the file before restarting."
+        )
         raise SystemExit(1)
 
 
 def save_data(data):
-    """Save all library data to the JSON file."""
-    temp_file = FILE + ".tmp"
+    temp_file = DATA_FILE + ".tmp"
 
     try:
         with open(temp_file, "w", encoding="utf-8") as file:
             json.dump(data, file, indent=4, ensure_ascii=False)
 
-        # Replace the old file only after writing succeeds.
-        os.replace(temp_file, FILE)
+        os.replace(temp_file, DATA_FILE)
         return True
 
     except OSError as exc:
-        error(f"Could not save data: {exc}")
-
+        messagebox.showerror("Save Error", str(exc))
         try:
             if os.path.exists(temp_file):
                 os.remove(temp_file)
         except OSError:
             pass
-
         return False
 
 
-# ----------------------- INPUT HELPERS ------------------------
+# -------------------------- APP ---------------------------------
 
-def get_text(prompt):
-    """Accept non-empty text."""
-    while True:
-        value = input(prompt).strip()
-        if value:
-            return value
-        warning("This field cannot be empty.")
+class LibraSmartApp:
 
+    def __init__(self, root):
+        self.root = root
+        self.root.title("LibraSmart | Library Management")
+        self.root.geometry("1250x790")
+        self.root.minsize(1000, 650)
+        self.root.configure(bg=BG)
 
-def get_id(prompt):
-    """Standardize IDs to uppercase."""
-    return get_text(prompt).upper()
+        self.data = load_data()
+        self.chart_canvas = None
+        self.chart_toolbar = None
+        self.current_tab = "Dashboard"
 
+        self.setup_style()
+        self.build_layout()
+        self.show_dashboard()
 
-def get_positive_int(prompt):
-    """Accept only positive whole numbers."""
-    while True:
-        try:
-            number = int(input(prompt))
-            if number > 0:
-                return number
-            warning("Enter a number greater than zero.")
-        except ValueError:
-            error("Please enter a valid whole number.")
+    # ----------------------- STYLING ----------------------------
 
+    def setup_style(self):
+        style = ttk.Style()
+        style.theme_use("clam")
 
-def get_choice(prompt, valid_choices):
-    """Accept a choice from a specified set."""
-    while True:
-        choice = input(prompt).strip()
-        if choice in valid_choices:
-            return choice
-        error("Invalid choice. Please try again.")
-
-
-# ---------------------- DASHBOARD -----------------------------
-
-def dashboard(data):
-    """Display current library statistics."""
-    total_titles = len(data["books"])
-    total_copies = sum(
-        book["total"] for book in data["books"].values()
-    )
-    available_copies = sum(
-        book["available"] for book in data["books"].values()
-    )
-    issued_count = sum(
-        record["return_date"] is None
-        for record in data["issued"]
-    )
-    overdue_count = sum(
-        record["return_date"] is None
-        and record["due_date"] < str(date.today())
-        for record in data["issued"]
-    )
-
-    heading("Library Dashboard")
-
-    print(f"""
-  {CYAN}BOOK COLLECTION{RESET}
-  Unique titles           : {BOLD}{total_titles}{RESET}
-  Total physical copies   : {BOLD}{total_copies}{RESET}
-  Available copies        : {GREEN}{available_copies}{RESET}
-
-  {CYAN}LIBRARY ACTIVITY{RESET}
-  Registered members      : {BOLD}{len(data['members'])}{RESET}
-  Currently issued        : {YELLOW}{issued_count}{RESET}
-  Overdue records         : {RED}{overdue_count}{RESET}
-  Active reservations     : {PURPLE}{len(data['reservations'])}{RESET}
-""")
-    line()
-
-
-# ----------------------- BOOK MANAGEMENT ----------------------
-
-def add_book(data):
-    heading("Add a New Book")
-
-    book_id = get_id("  Book ID       : ")
-
-    if book_id in data["books"]:
-        error("A book with this ID already exists.")
-        return
-
-    title = get_text("  Book title    : ")
-    author = get_text("  Author        : ")
-    copies = get_positive_int("  Number of copies: ")
-
-    data["books"][book_id] = {
-        "title": title,
-        "author": author,
-        "total": copies,
-        "available": copies
-    }
-
-    if save_data(data):
-        success("Book added successfully!")
-
-
-def view_books(data):
-    heading("Book Collection")
-
-    if not data["books"]:
-        warning("No books found. Add your first book using option 1.")
-        return
-
-    print(
-        f"{BOLD}{'BOOK ID':<12}{'TITLE':<24}"
-        f"{'AUTHOR':<18}{'STOCK':<10}{'STATUS'}{RESET}"
-    )
-    line()
-
-    for book_id, book in sorted(data["books"].items()):
-        title = book["title"][:22]
-        author = book["author"][:16]
-        stock = f"{book['available']}/{book['total']}"
-
-        if book["available"] > 0:
-            status = f"{GREEN}Available{RESET}"
-        else:
-            status = f"{RED}Out of stock{RESET}"
-
-        print(
-            f"{CYAN}{book_id:<12}{RESET}"
-            f"{title:<24}{author:<18}{stock:<10}{status}"
+        style.configure(
+            "Treeview",
+            background=WHITE,
+            foreground=DARK,
+            fieldbackground=WHITE,
+            rowheight=30,
+            font=("Segoe UI", 10)
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=LIGHT_PURPLE,
+            foreground=SIDEBAR,
+            font=("Segoe UI", 10, "bold"),
+            padding=8
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", LIGHT_PURPLE)],
+            foreground=[("selected", DARK)]
         )
 
-    line()
-    print(f"{DIM}Stock = available copies / total copies{RESET}")
-
-
-def search_books(data):
-    heading("Search the Collection")
-
-    if not data["books"]:
-        warning("The library has no books yet.")
-        return
-
-    keyword = get_text("  Enter ID, title or author: ").lower()
-    results = []
-
-    for book_id, book in data["books"].items():
-        if (
-            keyword in book_id.lower()
-            or keyword in book["title"].lower()
-            or keyword in book["author"].lower()
-        ):
-            results.append((book_id, book))
-
-    if not results:
-        warning("No matching books found.")
-        return
-
-    print()
-    for book_id, book in results:
-        print(f"{CYAN}  [{book_id}]{RESET} {BOLD}{book['title']}{RESET}")
-        print(f"       Author    : {book['author']}")
-        print(
-            f"       Available : "
-            f"{book['available']} / {book['total']}"
-        )
-        line("─", color=BLUE)
-
-
-# ---------------------- MEMBER MANAGEMENT ---------------------
-
-def add_member(data):
-    heading("Register a Member")
-
-    member_id = get_id("  Member ID    : ")
-
-    if member_id in data["members"]:
-        error("A member with this ID already exists.")
-        return
-
-    name = get_text("  Full name    : ")
-    phone = get_text("  Phone number : ")
-
-    data["members"][member_id] = {
-        "name": name,
-        "phone": phone
-    }
-
-    if save_data(data):
-        success(f"Member {name} registered successfully!")
-
-
-def view_members(data):
-    heading("Registered Members")
-
-    if not data["members"]:
-        warning("No members registered yet.")
-        return
-
-    print(f"{BOLD}{'MEMBER ID':<16}{'NAME':<30}{'PHONE'}{RESET}")
-    line()
-
-    for member_id, member in sorted(data["members"].items()):
-        print(
-            f"{CYAN}{member_id:<16}{RESET}"
-            f"{member['name'][:28]:<30}{member['phone']}"
+        style.configure(
+            "TNotebook",
+            background=BG,
+            borderwidth=0
         )
 
-    line()
+        style.configure(
+            "TNotebook.Tab",
+            padding=(18, 10),
+            font=("Segoe UI", 10, "bold")
+        )
 
+        style.configure(
+            "TCombobox",
+            padding=6
+        )
 
-# ------------------------ ISSUE BOOK --------------------------
+    def build_layout(self):
+        self.sidebar = tk.Frame(self.root, bg=SIDEBAR, width=225)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
 
-def issue_book(data):
-    heading("Issue a Book")
+        tk.Label(
+            self.sidebar,
+            text="📚 LibraSmart",
+            font=("Segoe UI", 20, "bold"),
+            bg=SIDEBAR,
+            fg="white"
+        ).pack(pady=(28, 4))
 
-    book_id = get_id("  Book ID   : ")
-    member_id = get_id("  Member ID : ")
+        tk.Label(
+            self.sidebar,
+            text="LIBRARY MANAGEMENT",
+            font=("Segoe UI", 9),
+            bg=SIDEBAR,
+            fg="#C7B7F2"
+        ).pack(pady=(0, 28))
 
-    if book_id not in data["books"]:
-        error("Book ID not found.")
-        return
+        navigation = [
+            ("Dashboard", self.show_dashboard),
+            ("Books", self.show_books),
+            ("Members", self.show_members),
+            ("Circulation", self.show_circulation),
+            ("Analytics & Graphs", self.show_analytics),
+            ("Reservations", self.show_reservations),
+        ]
 
-    if member_id not in data["members"]:
-        error("Member ID not found.")
-        return
+        for label, command in navigation:
+            tk.Button(
+                self.sidebar,
+                text="   " + label,
+                command=command,
+                anchor="w",
+                font=("Segoe UI", 11),
+                bg=SIDEBAR,
+                fg="white",
+                activebackground=PURPLE,
+                activeforeground="white",
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                padx=12,
+                pady=13
+            ).pack(fill="x", padx=10, pady=3)
 
-    book = data["books"][book_id]
+        tk.Frame(
+            self.sidebar, bg="#4A4068", height=1
+        ).pack(fill="x", padx=18, pady=20)
 
-    if book["available"] < 1:
-        warning("No copies are currently available.")
-        return
+        tk.Label(
+            self.sidebar,
+            text="Python • Tkinter • Matplotlib\nJSON Data Storage",
+            bg=SIDEBAR,
+            fg="#BDB5D3",
+            font=("Segoe UI", 9),
+            justify="left"
+        ).pack(side="bottom", pady=25)
 
-    already_issued = any(
-        record["book_id"] == book_id
-        and record["member_id"] == member_id
-        and record["return_date"] is None
-        for record in data["issued"]
-    )
+        self.main = tk.Frame(self.root, bg=BG)
+        self.main.pack(side="left", fill="both", expand=True)
 
-    if already_issued:
-        warning("This member already has this book issued.")
-        return
+    def clear_main(self):
+        for widget in self.main.winfo_children():
+            widget.destroy()
 
-    # Serve the reservation queue in order.
-    queue = [
-        item for item in data["reservations"]
-        if item["book_id"] == book_id
-    ]
+    def page_header(self, title, subtitle):
+        header = tk.Frame(self.main, bg=BG)
+        header.pack(fill="x", padx=30, pady=(25, 15))
 
-    if queue and queue[0]["member_id"] != member_id:
-        next_id = queue[0]["member_id"]
-        next_name = data["members"][next_id]["name"]
-        warning(f"This book is reserved for {next_name} ({next_id}).")
-        return
+        tk.Label(
+            header,
+            text=title,
+            font=("Segoe UI", 23, "bold"),
+            bg=BG,
+            fg=DARK
+        ).pack(anchor="w")
 
-    today = date.today()
-    due_date = today + timedelta(days=LOAN_DAYS)
+        tk.Label(
+            header,
+            text=subtitle,
+            font=("Segoe UI", 10),
+            bg=BG,
+            fg=MUTED
+        ).pack(anchor="w", pady=(4, 0))
 
-    record = {
-        "book_id": book_id,
-        "member_id": member_id,
-        "issue_date": str(today),
-        "due_date": str(due_date),
-        "return_date": None,
-        "fine": 0
-    }
+        tk.Label(
+            header,
+            text=date.today().strftime("%d %b %Y"),
+            font=("Segoe UI", 10, "bold"),
+            bg=BG,
+            fg=PURPLE
+        ).pack(anchor="e")
 
-    # Save a rollback copy in case saving fails.
-    old_available = book["available"]
-    old_issued_length = len(data["issued"])
+    def button(self, parent, text, command, color=PURPLE):
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=color,
+            fg="white",
+            activebackground=color,
+            activeforeground="white",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            cursor="hand2",
+            padx=15,
+            pady=9
+        )
 
-    data["issued"].append(record)
-    book["available"] -= 1
+    def card(self, parent, title, value, color=PURPLE):
+        frame = tk.Frame(
+            parent,
+            bg=WHITE,
+            highlightbackground="#E4E0EF",
+            highlightthickness=1
+        )
 
-    removed_reservation = None
-    if queue and queue[0]["member_id"] == member_id:
-        removed_reservation = queue[0]
-        data["reservations"].remove(removed_reservation)
+        tk.Frame(frame, bg=color, height=4).pack(fill="x")
 
-    if save_data(data):
-        success("Book issued successfully!")
-        print(f"  Title      : {book['title']}")
-        print(f"  Member     : {data['members'][member_id]['name']}")
-        print(f"  Issue date : {today}")
-        print(f"  Due date   : {due_date}")
-        print(f"  Loan period: {LOAN_DAYS} days")
-    else:
-        book["available"] = old_available
-        del data["issued"][old_issued_length:]
-        if removed_reservation is not None:
-            data["reservations"].append(removed_reservation)
+        tk.Label(
+            frame,
+            text=title,
+            bg=WHITE,
+            fg=MUTED,
+            font=("Segoe UI", 10)
+        ).pack(anchor="w", padx=15, pady=(13, 5))
 
+        tk.Label(
+            frame,
+            text=str(value),
+            bg=WHITE,
+            fg=DARK,
+            font=("Segoe UI", 23, "bold")
+        ).pack(anchor="w", padx=15, pady=(0, 15))
 
-# ------------------------ RETURN BOOK -------------------------
+        return frame
 
-def return_book(data):
-    heading("Return a Book")
+    def make_table(self, parent, columns, headings, widths=None):
+        container = tk.Frame(parent, bg=WHITE)
 
-    book_id = get_id("  Book ID   : ")
-    member_id = get_id("  Member ID : ")
+        tree = ttk.Treeview(
+            container,
+            columns=columns,
+            show="headings"
+        )
 
-    for record in data["issued"]:
-        if (
-            record["book_id"] == book_id
-            and record["member_id"] == member_id
-            and record["return_date"] is None
-        ):
-            due_date = datetime.strptime(
-                record["due_date"], "%Y-%m-%d"
-            ).date()
-
-            today = date.today()
-            days_late = max(0, (today - due_date).days)
-            fine = days_late * FINE_PER_DAY
-
-            book = data["books"][book_id]
-            old_available = book["available"]
-
-            record["return_date"] = str(today)
-            record["fine"] = fine
-            book["available"] += 1
-
-            if save_data(data):
-                success("Book returned successfully!")
-                print(f"  Book       : {book['title']}")
-                print(f"  Days late  : {days_late}")
-                print(f"  Fine       : Rs. {fine}")
-
-                queue = [
-                    item for item in data["reservations"]
-                    if item["book_id"] == book_id
-                ]
-
-                if queue:
-                    next_id = queue[0]["member_id"]
-                    next_name = data["members"][next_id]["name"]
-                    warning(
-                        f"Next reservation: {next_name} ({next_id})"
-                    )
-            else:
-                record["return_date"] = None
-                record["fine"] = 0
-                book["available"] = old_available
-            return
-
-    error("No active issue record found for this book and member.")
-
-
-# ----------------------- OVERDUE REPORT -----------------------
-
-def overdue_report(data):
-    heading("Overdue Books Report")
-
-    today = date.today()
-    found = False
-
-    for record in data["issued"]:
-        if record["return_date"] is not None:
-            continue
-
-        due_date = datetime.strptime(
-            record["due_date"], "%Y-%m-%d"
-        ).date()
-
-        if today > due_date:
-            days_late = (today - due_date).days
-            fine = days_late * FINE_PER_DAY
-
-            book = data["books"].get(
-                record["book_id"], {"title": "Unknown"}
-            )
-            member = data["members"].get(
-                record["member_id"], {"name": "Unknown"}
+        for i, col in enumerate(columns):
+            tree.heading(col, text=headings[i])
+            tree.column(
+                col,
+                width=widths[i] if widths else 130,
+                anchor="w"
             )
 
-            print(f"\n{RED}{BOLD}  OVERDUE RECORD{RESET}")
-            print(f"  Book      : {book['title']}")
-            print(f"  Member    : {member['name']}")
-            print(f"  Due date  : {due_date}")
-            print(f"  Days late : {days_late}")
-            print(f"  Fine due  : Rs. {fine}")
-            line("─", color=RED)
-            found = True
-
-    if not found:
-        success("No overdue books. Everything is up to date!")
-
-
-# --------------------- BORROWING HISTORY ----------------------
-
-def member_history(data):
-    heading("Member Borrowing History")
-
-    member_id = get_id("  Member ID: ")
-
-    if member_id not in data["members"]:
-        error("Member ID not found.")
-        return
-
-    member = data["members"][member_id]
-    print(f"\n  Name: {member['name']}")
-    line()
-
-    records = [
-        record for record in data["issued"]
-        if record["member_id"] == member_id
-    ]
-
-    if not records:
-        warning("This member has no borrowing history.")
-        return
-
-    for record in records:
-        book = data["books"].get(
-            record["book_id"], {"title": "Unknown book"}
+        scrollbar = ttk.Scrollbar(
+            container, orient="vertical", command=tree.yview
         )
+        tree.configure(yscrollcommand=scrollbar.set)
 
-        status = (
-            f"{YELLOW}ISSUED{RESET}"
-            if record["return_date"] is None
-            else f"{GREEN}RETURNED{RESET}"
-        )
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
 
-        print(f"  Book       : {book['title']}")
-        print(f"  Issue date : {record['issue_date']}")
-        print(f"  Due date   : {record['due_date']}")
-        print(f"  Returned   : {record['return_date'] or 'Pending'}")
-        print(f"  Fine       : Rs. {record['fine']}")
-        print(f"  Status     : {status}")
-        line("─", color=BLUE)
+        return container, tree
 
-
-# --------------------- POPULAR BOOKS --------------------------
-
-def popular_books(data):
-    heading("Popular Books Analytics")
-
-    if not data["books"]:
-        warning("No books available.")
-        return
-
-    counts = {book_id: 0 for book_id in data["books"]}
-
-    for record in data["issued"]:
-        book_id = record["book_id"]
-        if book_id in counts:
-            counts[book_id] += 1
-
-    ranked = sorted(
-        counts.items(),
-        key=lambda item: (-item[1], item[0])
-    )
-
-    print(f"{BOLD}{'RANK':<8}{'BOOK TITLE':<35}{'BORROWINGS'}{RESET}")
-    line()
-
-    for rank, (book_id, count) in enumerate(ranked, start=1):
-        title = data["books"][book_id]["title"][:33]
-        print(
-            f"{CYAN}{rank:<8}{RESET}"
-            f"{title:<35}{count}"
-        )
-
-    line()
-    print(f"{DIM}Rankings use recorded borrowing transactions.{RESET}")
-
-
-# --------------------- BOOK RESERVATIONS -----------------------
-
-def reserve_book(data):
-    heading("Reserve a Book")
-
-    book_id = get_id("  Book ID   : ")
-    member_id = get_id("  Member ID : ")
-
-    if book_id not in data["books"]:
-        error("Book ID not found.")
-        return
-
-    if member_id not in data["members"]:
-        error("Member ID not found.")
-        return
-
-    if data["books"][book_id]["available"] > 0:
-        warning("A copy is available. You can issue it directly.")
-        return
-
-    if any(
-        record["book_id"] == book_id
-        and record["member_id"] == member_id
-        for record in data["reservations"]
-    ):
-        warning("This member already has a reservation for this book.")
-        return
-
-    if any(
-        record["book_id"] == book_id
-        and record["member_id"] == member_id
-        and record["return_date"] is None
-        for record in data["issued"]
-    ):
-        warning("This member already has this book issued.")
-        return
-
-    reservation = {
-        "book_id": book_id,
-        "member_id": member_id,
-        "reservation_date": str(date.today())
-    }
-
-    data["reservations"].append(reservation)
-
-    if save_data(data):
-        position = sum(
-            item["book_id"] == book_id
-            for item in data["reservations"]
-        )
-        success("Reservation added successfully!")
-        print(f"  Book     : {data['books'][book_id]['title']}")
-        print(f"  Member   : {data['members'][member_id]['name']}")
-        print(f"  Position : {position}")
-
-
-def view_reservations(data):
-    heading("Reservation Queue")
-
-    if not data["reservations"]:
-        warning("No active reservations.")
-        return
-
-    positions = {}
-
-    for item in data["reservations"]:
-        book_id = item["book_id"]
-        positions[book_id] = positions.get(book_id, 0) + 1
-
-        book = data["books"].get(
-            book_id, {"title": "Unknown book"}
-        )
-        member = data["members"].get(
-            item["member_id"], {"name": "Unknown member"}
-        )
-
-        print(f"\n  Book     : {book['title']}")
-        print(f"  Member   : {member['name']}")
-        print(f"  Position : {positions[book_id]}")
-        print(f"  Reserved : {item['reservation_date']}")
-        line("─", color=BLUE)
-
-
-# ------------------------- MAIN MENU --------------------------
-
-def main():
-    """Start and manage the LibraSmart application."""
-    data = load_data()
-
-    actions = {
-        "1": add_book,
-        "2": view_books,
-        "3": search_books,
-        "4": add_member,
-        "5": view_members,
-        "6": issue_book,
-        "7": return_book,
-        "8": overdue_report,
-        "9": member_history,
-        "10": popular_books,
-        "11": reserve_book,
-        "12": view_reservations
-    }
-
-    while True:
-        welcome_screen()
-        dashboard(data)
-
-        print(f"""
-  {BOLD}{CYAN}BOOK MANAGEMENT{RESET}
-  {GREEN}[1]{RESET}  Add a book
-  {GREEN}[2]{RESET}  Browse all books
-  {GREEN}[3]{RESET}  Search the collection
-
-  {BOLD}{CYAN}MEMBER MANAGEMENT{RESET}
-  {GREEN}[4]{RESET}  Register a member
-  {GREEN}[5]{RESET}  View members
-
-  {BOLD}{CYAN}CIRCULATION DESK{RESET}
-  {GREEN}[6]{RESET}  Issue a book
-  {GREEN}[7]{RESET}  Return a book
-  {GREEN}[8]{RESET}  Overdue report
-  {GREEN}[9]{RESET}  Member borrowing history
-
-  {BOLD}{CYAN}SMART FEATURES{RESET}
-  {GREEN}[10]{RESET} Popular books analytics
-  {GREEN}[11]{RESET} Reserve a book
-  {GREEN}[12]{RESET} View reservation queue
-
-  {RED}[13]{RESET} Exit application
-""")
-
-        line("═", color=PURPLE)
-
-        choice = input(
-            f"{BOLD}{PURPLE}  Enter your choice (1-13): {RESET}"
-        ).strip()
-
-        if choice == "13":
-            line("═", color=PURPLE)
-            print(f"{PURPLE}{BOLD}")
-            print("  Thank you for using LibraSmart!")
-            print(f"{RESET}{CYAN}  Your library journey continues. Goodbye!{RESET}")
-            line("═", color=PURPLE)
-            break
-
-        action = actions.get(choice)
-
-        if action:
+    def make_chart(self, parent, figure):
+        if self.chart_canvas:
             try:
-                action(data)
-            except (KeyError, TypeError, ValueError) as exc:
-                error(f"Could not complete this operation: {exc}")
-            pause()
-        else:
-            error("Invalid choice. Please select a number from 1 to 13.")
-            pause()
+                self.chart_canvas.get_tk_widget().destroy()
+            except tk.TclError:
+                pass
+
+        canvas = FigureCanvasTkAgg(figure, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        toolbar = NavigationToolbar2Tk(canvas, parent, pack_toolbar=False)
+        toolbar.update()
+        toolbar.pack(fill="x")
+
+        self.chart_canvas = canvas
+        self.chart_toolbar = toolbar
+
+    # ----------------------- STATISTICS -------------------------
+
+    def stats(self):
+        books = self.data["books"]
+        total_titles = len(books)
+        total_copies = sum(b["total"] for b in books.values())
+        available = sum(b["available"] for b in books.values())
+
+        active = [
+            r for r in self.data["issued"]
+            if r.get("return_date") is None
+        ]
+
+        overdue = [
+            r for r in active
+            if r["due_date"] < str(date.today())
+        ]
+
+        return {
+            "titles": total_titles,
+            "copies": total_copies,
+            "available": available,
+            "members": len(self.data["members"]),
+            "issued": len(active),
+            "overdue": len(overdue),
+            "reservations": len(self.data["reservations"])
+        }
+
+    # ----------------------- DASHBOARD --------------------------
+
+    def show_dashboard(self):
+        self.current_tab = "Dashboard"
+        self.clear_main()
+        self.page_header(
+            "Dashboard",
+            "Your library at a glance"
+        )
+
+        stats = self.stats()
+
+        cards = tk.Frame(self.main, bg=BG)
+        cards.pack(fill="x", padx=25, pady=8)
+
+        card_data = [
+            ("BOOK TITLES", stats["titles"], PURPLE),
+            ("TOTAL COPIES", stats["copies"], "#4387D7"),
+            ("AVAILABLE", stats["available"], GREEN),
+            ("MEMBERS", stats["members"], ORANGE),
+            ("ISSUED", stats["issued"], "#4387D7"),
+            ("OVERDUE", stats["overdue"], RED),
+        ]
+
+        for index, (title, value, color) in enumerate(card_data):
+            widget = self.card(cards, title, value, color)
+            widget.grid(
+                row=index // 3,
+                column=index % 3,
+                sticky="nsew",
+                padx=7,
+                pady=7
+            )
+
+        for col in range(3):
+            cards.grid_columnconfigure(col, weight=1)
+
+        content = tk.Frame(self.main, bg=BG)
+        content.pack(fill="both", expand=True, padx=32, pady=12)
+
+        tk.Label(
+            content,
+            text="Quick Actions",
+            font=("Segoe UI", 14, "bold"),
+            bg=BG,
+            fg=DARK
+        ).pack(anchor="w", pady=(0, 12))
+
+        actions = tk.Frame(content, bg=BG)
+        actions.pack(anchor="w")
+
+        self.button(
+            actions, "+ Add Book", self.show_books
+        ).pack(side="left", padx=(0, 8))
+
+        self.button(
+            actions, "+ Register Member", self.show_members,
+            color="#4387D7"
+        ).pack(side="left", padx=8)
+
+        self.button(
+            actions, "Issue / Return", self.show_circulation,
+            color=GREEN
+        ).pack(side="left", padx=8)
+
+        self.button(
+            actions, "View Graphs", self.show_analytics,
+            color=ORANGE
+        ).pack(side="left", padx=8)
+
+        tk.Label(
+            content,
+            text=(
+                "Data is stored locally in library_data.json.\n"
+                "Use Analytics & Graphs to explore borrowing statistics."
+            ),
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 10),
+            justify="left"
+        ).pack(anchor="w", pady=28)
+
+    # ------------------------ BOOKS -----------------------------
+
+    def show_books(self):
+        self.current_tab = "Books"
+        self.clear_main()
+        self.page_header(
+            "Book Management",
+            "Add, browse, search and manage your collection"
+        )
+
+        form = tk.LabelFrame(
+            self.main,
+            text=" Add New Book ",
+            bg=WHITE,
+            fg=PURPLE,
+            font=("Segoe UI", 11, "bold"),
+            padx=12,
+            pady=12
+        )
+        form.pack(fill="x", padx=30, pady=8)
+
+        book_id = tk.StringVar()
+        title = tk.StringVar()
+        author = tk.StringVar()
+        copies = tk.StringVar(value="1")
+
+        fields = [
+            ("Book ID", book_id, 14),
+            ("Title", title, 24),
+            ("Author", author, 20),
+            ("Copies", copies, 8)
+        ]
+
+        for i, (label, variable, width) in enumerate(fields):
+            tk.Label(
+                form, text=label, bg=WHITE, fg=DARK
+            ).grid(row=0, column=i, sticky="w", padx=5)
+
+            tk.Entry(
+                form, textvariable=variable, width=width,
+                font=("Segoe UI", 10), relief="solid", bd=1
+            ).grid(row=1, column=i, padx=5, pady=7, ipady=5)
+
+        def add_book():
+            bid = book_id.get().strip().upper()
+            name = title.get().strip()
+            writer = author.get().strip()
+
+            if not bid or not name or not writer:
+                messagebox.showwarning(
+                    "Missing Information",
+                    "Fill in Book ID, Title and Author."
+                )
+                return
+
+            if bid in self.data["books"]:
+                messagebox.showwarning(
+                    "Duplicate ID", "This Book ID already exists."
+                )
+                return
+
+            try:
+                count = int(copies.get())
+                if count <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror(
+                    "Invalid Copies",
+                    "Enter a positive whole number."
+                )
+                return
+
+            self.data["books"][bid] = {
+                "title": name,
+                "author": writer,
+                "total": count,
+                "available": count
+            }
+
+            if save_data(self.data):
+                messagebox.showinfo(
+                    "Success", f"Added '{name}' successfully."
+                )
+                self.show_books()
+
+        self.button(form, "Add Book", add_book).grid(
+            row=1, column=4, padx=10
+        )
+
+        search_row = tk.Frame(self.main, bg=BG)
+        search_row.pack(fill="x", padx=30, pady=(12, 5))
+
+        search = tk.StringVar()
+
+        tk.Label(
+            search_row,
+            text="Search books:",
+            bg=BG,
+            fg=DARK,
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="left", padx=(0, 8))
+
+        search_entry = tk.Entry(
+            search_row, textvariable=search, width=32,
+            font=("Segoe UI", 10)
+        )
+        search_entry.pack(side="left", ipady=5)
+
+        table_frame = tk.Frame(self.main, bg=WHITE)
+        table_frame.pack(
+            fill="both", expand=True, padx=30, pady=(5, 25)
+        )
+
+        container, tree = self.make_table(
+            table_frame,
+            ("id", "title", "author", "total", "available", "status"),
+            ("Book ID", "Title", "Author", "Total", "Available", "Status"),
+            (100, 230, 190, 75, 90, 120)
+        )
+        container.pack(fill="both", expand=True, padx=5, pady=5)
+
+        def refresh(*_):
+            tree.delete(*tree.get_children())
+            keyword = search.get().lower()
+
+            for bid, book in sorted(self.data["books"].items()):
+                searchable = (
+                    bid + book["title"] + book["author"]
+                ).lower()
+
+                if keyword and keyword not in searchable:
+                    continue
+
+                status = (
+                    "Available" if book["available"] > 0
+                    else "Out of stock"
+                )
+
+                tree.insert(
+                    "", "end",
+                    values=(
+                        bid,
+                        book["title"],
+                        book["author"],
+                        book["total"],
+                        book["available"],
+                        status
+                    )
+                )
+
+        search.trace_add("write", refresh)
+        refresh()
+
+    # ----------------------- MEMBERS ---------------------------
+
+    def show_members(self):
+        self.current_tab = "Members"
+        self.clear_main()
+        self.page_header(
+            "Member Management",
+            "Register and browse library members"
+        )
+
+        form = tk.LabelFrame(
+            self.main,
+            text=" Register Member ",
+            bg=WHITE,
+            fg=PURPLE,
+            font=("Segoe UI", 11, "bold"),
+            padx=15,
+            pady=12
+        )
+        form.pack(fill="x", padx=30, pady=10)
+
+        member_id = tk.StringVar()
+        name = tk.StringVar()
+        phone = tk.StringVar()
+
+        for i, (label, variable) in enumerate([
+            ("Member ID", member_id),
+            ("Full Name", name),
+            ("Phone", phone)
+        ]):
+            tk.Label(
+                form, text=label, bg=WHITE, fg=DARK
+            ).grid(row=0, column=i, sticky="w", padx=6)
+
+            tk.Entry(
+                form, textvariable=variable, width=24,
+                font=("Segoe UI", 10)
+            ).grid(row=1, column=i, padx=6, pady=8, ipady=5)
+
+        def register():
+            mid = member_id.get().strip().upper()
+            full_name = name.get().strip()
+            contact = phone.get().strip()
+
+            if not mid or not full_name or not contact:
+                messagebox.showwarning(
+                    "Missing Information", "Complete all fields."
+                )
+                return
+
+            if mid in self.data["members"]:
+                messagebox.showwarning(
+                    "Duplicate ID", "This Member ID already exists."
+                )
+                return
+
+            self.data["members"][mid] = {
+                "name": full_name,
+                "phone": contact
+            }
+
+            if save_data(self.data):
+                messagebox.showinfo(
+                    "Success", "Member registered successfully."
+                )
+                self.show_members()
+
+        self.button(form, "Register", register).grid(
+            row=1, column=3, padx=12
+        )
+
+        table_frame = tk.Frame(self.main, bg=WHITE)
+        table_frame.pack(
+            fill="both", expand=True, padx=30, pady=(5, 25)
+        )
+
+        container, tree = self.make_table(
+            table_frame,
+            ("id", "name", "phone", "active"),
+            ("Member ID", "Name", "Phone", "Active Issues"),
+            (140, 280, 200, 130)
+        )
+        container.pack(fill="both", expand=True, padx=5, pady=5)
+
+        for mid, member in sorted(self.data["members"].items()):
+            active = sum(
+                r["member_id"] == mid and r["return_date"] is None
+                for r in self.data["issued"]
+            )
+            tree.insert(
+                "", "end",
+                values=(mid, member["name"], member["phone"], active)
+            )
+
+    # --------------------- CIRCULATION -------------------------
+
+    def show_circulation(self):
+        self.current_tab = "Circulation"
+        self.clear_main()
+        self.page_header(
+            "Circulation Desk",
+            "Issue books, process returns and calculate late fines"
+        )
+
+        form = tk.LabelFrame(
+            self.main,
+            text=" Book Transaction ",
+            bg=WHITE,
+            fg=PURPLE,
+            font=("Segoe UI", 11, "bold"),
+            padx=18,
+            pady=18
+        )
+        form.pack(fill="x", padx=30, pady=10)
+
+        book_id = tk.StringVar()
+        member_id = tk.StringVar()
+
+        tk.Label(
+            form, text="Book ID", bg=WHITE, fg=DARK
+        ).grid(row=0, column=0, sticky="w", padx=8)
+
+        tk.Entry(
+            form, textvariable=book_id, width=25
+        ).grid(row=1, column=0, padx=8, pady=8, ipady=5)
+
+        tk.Label(
+            form, text="Member ID", bg=WHITE, fg=DARK
+        ).grid(row=0, column=1, sticky="w", padx=8)
+
+        tk.Entry(
+            form, textvariable=member_id, width=25
+        ).grid(row=1, column=1, padx=8, pady=8, ipady=5)
+
+        def issue():
+            bid = book_id.get().strip().upper()
+            mid = member_id.get().strip().upper()
+
+            if bid not in self.data["books"]:
+                messagebox.showerror("Error", "Book ID not found.")
+                return
+
+            if mid not in self.data["members"]:
+                messagebox.showerror("Error", "Member ID not found.")
+                return
+
+            book = self.data["books"][bid]
+
+            if book["available"] <= 0:
+                messagebox.showwarning(
+                    "Unavailable", "No copies are available."
+                )
+                return
+
+            if any(
+                r["book_id"] == bid
+                and r["member_id"] == mid
+                and r["return_date"] is None
+                for r in self.data["issued"]
+            ):
+                messagebox.showwarning(
+                    "Already Issued",
+                    "This member already has this book."
+                )
+                return
+
+            queue = [
+                r for r in self.data["reservations"]
+                if r["book_id"] == bid
+            ]
+
+            if queue and queue[0]["member_id"] != mid:
+                reserved_for = self.data["members"].get(
+                    queue[0]["member_id"], {}
+                ).get("name", queue[0]["member_id"])
+
+                messagebox.showwarning(
+                    "Reserved",
+                    f"This book is reserved for {reserved_for}."
+                )
+                return
+
+            record = {
+                "book_id": bid,
+                "member_id": mid,
+                "issue_date": str(date.today()),
+                "due_date": str(date.today() + timedelta(days=LOAN_DAYS)),
+                "return_date": None,
+                "fine": 0
+            }
+
+            book["available"] -= 1
+            self.data["issued"].append(record)
+
+            removed = None
+            if queue:
+                removed = queue[0]
+                self.data["reservations"].remove(removed)
+
+            if save_data(self.data):
+                messagebox.showinfo(
+                    "Book Issued",
+                    f"{book['title']} issued successfully.\n\n"
+                    f"Issue date: {record['issue_date']}\n"
+                    f"Due date: {record['due_date']}"
+                )
+                self.show_circulation()
+            else:
+                book["available"] += 1
+                self.data["issued"].remove(record)
+                if removed:
+                    self.data["reservations"].append(removed)
+
+        def return_book():
+            bid = book_id.get().strip().upper()
+            mid = member_id.get().strip().upper()
+
+            for record in self.data["issued"]:
+                if (
+                    record["book_id"] == bid
+                    and record["member_id"] == mid
+                    and record["return_date"] is None
+                ):
+                    due = datetime.strptime(
+                        record["due_date"], "%Y-%m-%d"
+                    ).date()
+
+                    today = date.today()
+                    late_days = max(0, (today - due).days)
+                    fine = late_days * FINE_PER_DAY
+
+                    book = self.data["books"][bid]
+                    book["available"] += 1
+                    record["return_date"] = str(today)
+                    record["fine"] = fine
+
+                    if save_data(self.data):
+                        messagebox.showinfo(
+                            "Book Returned",
+                            f"Book returned successfully!\n\n"
+                            f"Days late: {late_days}\n"
+                            f"Fine: Rs. {fine}"
+                        )
+                        self.show_circulation()
+                    else:
+                        book["available"] -= 1
+                        record["return_date"] = None
+                        record["fine"] = 0
+                    return
+
+            messagebox.showerror(
+                "Not Found",
+                "No active issue found for these IDs."
+            )
+
+        self.button(form, "Issue Book", issue, GREEN).grid(
+            row=1, column=2, padx=12
+        )
+
+        self.button(form, "Return Book", return_book, ORANGE).grid(
+            row=1, column=3, padx=12
+        )
+
+        tk.Label(
+            self.main,
+            text=f"Loan period: {LOAN_DAYS} days    |    "
+                 f"Late fine: Rs. {FINE_PER_DAY} per day",
+            bg=BG,
+            fg=MUTED,
+            font=("Segoe UI", 11)
+        ).pack(anchor="w", padx=35, pady=15)
+
+        table_frame = tk.Frame(self.main, bg=WHITE)
+        table_frame.pack(
+            fill="both", expand=True, padx=30, pady=(0, 20)
+        )
+
+        container, tree = self.make_table(
+            table_frame,
+            ("book", "member", "issue", "due", "status", "fine"),
+            ("Book", "Member", "Issue Date", "Due Date", "Status", "Fine"),
+            (180, 150, 120, 120, 120, 100)
+        )
+        container.pack(fill="both", expand=True, padx=5, pady=5)
+
+        for record in reversed(self.data["issued"]):
+            book = self.data["books"].get(record["book_id"], {})
+            member = self.data["members"].get(record["member_id"], {})
+
+            status = (
+                "Returned" if record["return_date"] else
+                "Overdue" if record["due_date"] < str(date.today()) else
+                "Issued"
+            )
+
+            tree.insert(
+                "", "end",
+                values=(
+                    book.get("title", record["book_id"]),
+                    member.get("name", record["member_id"]),
+                    record["issue_date"],
+                    record["due_date"],
+                    status,
+                    "Rs. " + str(record.get("fine", 0))
+                )
+            )
+
+    # ---------------------- ANALYTICS --------------------------
+
+    def show_analytics(self):
+        self.current_tab = "Analytics & Graphs"
+        self.clear_main()
+        self.page_header(
+            "Analytics & Graphs",
+            "Explore your library through interactive charts"
+        )
+
+        controls = tk.Frame(self.main, bg=BG)
+        controls.pack(fill="x", padx=30, pady=(0, 10))
+
+        chart_type = tk.StringVar(value="Borrowing Popularity")
+
+        tk.Label(
+            controls,
+            text="Select visualization:",
+            bg=BG,
+            fg=DARK,
+            font=("Segoe UI", 10, "bold")
+        ).pack(side="left", padx=(0, 10))
+
+        choices = [
+            "Borrowing Popularity",
+            "Book Availability",
+            "Borrowing Activity",
+            "Member Activity"
+        ]
+
+        selector = ttk.Combobox(
+            controls,
+            textvariable=chart_type,
+            values=choices,
+            state="readonly",
+            width=25
+        )
+        selector.pack(side="left", padx=5)
+
+        chart_area = tk.Frame(self.main, bg=WHITE)
+        chart_area.pack(
+            fill="both", expand=True, padx=30, pady=(5, 25)
+        )
+
+        def draw_chart(*_):
+            for widget in chart_area.winfo_children():
+                widget.destroy()
+
+            fig = Figure(figsize=(9, 5), dpi=100)
+            ax = fig.add_subplot(111)
+            fig.patch.set_facecolor(WHITE)
+            ax.set_facecolor(WHITE)
+
+            selected = chart_type.get()
+
+            if selected == "Borrowing Popularity":
+                counts = Counter(
+                    r["book_id"] for r in self.data["issued"]
+                )
+                top = counts.most_common(10)
+
+                labels = [
+                    self.data["books"].get(
+                        bid, {"title": bid}
+                    )["title"][:20]
+                    for bid, _ in top
+                ]
+                values = [count for _, count in top]
+
+                if not values:
+                    labels, values = ["No borrowing data"], [0]
+
+                bars = ax.barh(
+                    labels[::-1],
+                    values[::-1],
+                    color="#8064C9"
+                )
+                ax.set_title(
+                    "Top Borrowed Books",
+                    fontsize=15, fontweight="bold", pad=18
+                )
+                ax.set_xlabel("Number of borrowing transactions")
+                ax.grid(axis="x", alpha=0.2)
+                ax.set_axisbelow(True)
+
+                for bar, value in zip(bars, values[::-1]):
+                    ax.text(
+                        value, bar.get_y() + bar.get_height() / 2,
+                        f" {value}", va="center"
+                    )
+
+            elif selected == "Book Availability":
+                total = sum(
+                    b["total"] for b in self.data["books"].values()
+                )
+                available = sum(
+                    b["available"] for b in self.data["books"].values()
+                )
+                issued = max(0, total - available)
+
+                if total:
+                    ax.pie(
+                        [available, issued],
+                        labels=["Available", "Issued"],
+                        colors=["#43B581", "#8064C9"],
+                        autopct="%1.1f%%",
+                        startangle=90,
+                        explode=(0.03, 0.03),
+                        wedgeprops={"edgecolor": "white", "linewidth": 2}
+                    )
+                    ax.set_title(
+                        "Available vs Issued Copies",
+                        fontsize=15, fontweight="bold", pad=18
+                    )
+                else:
+                    ax.text(
+                        0.5, 0.5, "Add books to view availability",
+                        ha="center", va="center",
+                        transform=ax.transAxes
+                    )
+
+            elif selected == "Borrowing Activity":
+                counts = Counter(
+                    r["issue_date"] for r in self.data["issued"]
+                )
+                dates = sorted(counts)
+
+                if dates:
+                    values = [counts[d] for d in dates]
+                    ax.plot(
+                        dates, values,
+                        marker="o", linewidth=2.5,
+                        color="#4387D7"
+                    )
+                    ax.fill_between(
+                        dates, values, alpha=0.15, color="#4387D7"
+                    )
+                    ax.tick_params(axis="x", rotation=35)
+                    ax.set_ylabel("Books issued")
+                    ax.set_xlabel("Issue date")
+                    ax.grid(alpha=0.2)
+                else:
+                    ax.text(
+                        0.5, 0.5, "No borrowing activity recorded yet",
+                        ha="center", va="center",
+                        transform=ax.transAxes
+                    )
+
+                ax.set_title(
+                    "Borrowing Activity by Issue Date",
+                    fontsize=15, fontweight="bold", pad=18
+                )
+
+            elif selected == "Member Activity":
+                counts = Counter(
+                    r["member_id"] for r in self.data["issued"]
+                )
+                top = counts.most_common(10)
+
+                labels = [
+                    self.data["members"].get(
+                        mid, {"name": mid}
+                    )["name"][:20]
+                    for mid, _ in top
+                ]
+                values = [count for _, count in top]
+
+                if not values:
+                    labels, values = ["No activity"], [0]
+
+                ax.bar(
+                    labels, values,
+                    color="#E9A23B"
+                )
+                ax.set_title(
+                    "Most Active Members",
+                    fontsize=15, fontweight="bold", pad=18
+                )
+                ax.set_ylabel("Borrowing transactions")
+                ax.tick_params(axis="x", rotation=25)
+                ax.grid(axis="y", alpha=0.2)
+                ax.set_axisbelow(True)
+
+            fig.tight_layout()
+
+            canvas = FigureCanvasTkAgg(fig, master=chart_area)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
+
+            toolbar = NavigationToolbar2Tk(
+                canvas, chart_area, pack_toolbar=False
+            )
+            toolbar.update()
+            toolbar.pack(fill="x")
+
+            # Matplotlib toolbar supports zoom, pan and saving charts.
+            # Clicking a chart bar also displays its value.
+            def on_click(event):
+                if event.inaxes != ax or event.xdata is None:
+                    return
+
+                if selected == "Borrowing Popularity":
+                    for bar in ax.patches:
+                        if bar.contains(event)[0]:
+                            label = labels[::-1][
+                                list(ax.patches).index(bar)
+                            ]
+                            messagebox.showinfo(
+                                "Book Analytics",
+                                f"{label}\nBorrowings: "
+                                f"{int(bar.get_width())}"
+                            )
+                            break
+
+            canvas.mpl_connect("button_press_event", on_click)
+
+        selector.bind("<<ComboboxSelected>>", draw_chart)
+        self.button(
+            controls, "Refresh Chart", draw_chart
+        ).pack(side="left", padx=10)
+
+        draw_chart()
+
+    # ---------------------- RESERVATIONS -----------------------
+
+    def show_reservations(self):
+        self.current_tab = "Reservations"
+        self.clear_main()
+        self.page_header(
+            "Reservations",
+            "Manage the queue for unavailable books"
+        )
+
+        form = tk.LabelFrame(
+            self.main,
+            text=" Reserve a Book ",
+            bg=WHITE,
+            fg=PURPLE,
+            font=("Segoe UI", 11, "bold"),
+            padx=15,
+            pady=15
+        )
+        form.pack(fill="x", padx=30, pady=10)
+
+        book_id = tk.StringVar()
+        member_id = tk.StringVar()
+
+        tk.Label(
+            form, text="Book ID", bg=WHITE, fg=DARK
+        ).grid(row=0, column=0, sticky="w", padx=6)
+
+        tk.Entry(
+            form, textvariable=book_id, width=24
+        ).grid(row=1, column=0, padx=6, pady=7, ipady=5)
+
+        tk.Label(
+            form, text="Member ID", bg=WHITE, fg=DARK
+        ).grid(row=0, column=1, sticky="w", padx=6)
+
+        tk.Entry(
+            form, textvariable=member_id, width=24
+        ).grid(row=1, column=1, padx=6, pady=7, ipady=5)
+
+        def reserve():
+            bid = book_id.get().strip().upper()
+            mid = member_id.get().strip().upper()
+
+            if bid not in self.data["books"]:
+                messagebox.showerror("Error", "Book not found.")
+                return
+
+            if mid not in self.data["members"]:
+                messagebox.showerror("Error", "Member not found.")
+                return
+
+            if self.data["books"][bid]["available"] > 0:
+                messagebox.showwarning(
+                    "Available",
+                    "A copy is available. Issue it directly."
+                )
+                return
+
+            if any(
+                r["book_id"] == bid and r["member_id"] == mid
+                for r in self.data["reservations"]
+            ):
+                messagebox.showwarning(
+                    "Duplicate", "This reservation already exists."
+                )
+                return
+
+            if any(
+                r["book_id"] == bid
+                and r["member_id"] == mid
+                and r["return_date"] is None
+                for r in self.data["issued"]
+            ):
+                messagebox.showwarning(
+                    "Already Issued",
+                    "This member already has the book."
+                )
+                return
+
+            self.data["reservations"].append({
+                "book_id": bid,
+                "member_id": mid,
+                "reservation_date": str(date.today())
+            })
+
+            if save_data(self.data):
+                messagebox.showinfo(
+                    "Success", "Reservation added to the queue."
+                )
+                self.show_reservations()
+
+        self.button(form, "Reserve Book", reserve).grid(
+            row=1, column=2, padx=15
+        )
+
+        table_frame = tk.Frame(self.main, bg=WHITE)
+        table_frame.pack(
+            fill="both", expand=True, padx=30, pady=(5, 25)
+        )
+
+        container, tree = self.make_table(
+            table_frame,
+            ("position", "book", "member", "date"),
+            ("Queue Position", "Book", "Member", "Reservation Date"),
+            (130, 250, 220, 170)
+        )
+        container.pack(fill="both", expand=True, padx=5, pady=5)
+
+        positions = {}
+
+        for item in self.data["reservations"]:
+            bid = item["book_id"]
+            positions[bid] = positions.get(bid, 0) + 1
+
+            book = self.data["books"].get(bid, {})
+            member = self.data["members"].get(item["member_id"], {})
+
+            tree.insert(
+                "", "end",
+                values=(
+                    positions[bid],
+                    book.get("title", bid),
+                    member.get("name", item["member_id"]),
+                    item["reservation_date"]
+                )
+            )
 
 
-# Run the application when this file is executed directly.
+# ------------------------- START APP ---------------------------
+
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    app = LibraSmartApp(root)
+    root.mainloop()
